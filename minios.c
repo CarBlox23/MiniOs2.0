@@ -1516,9 +1516,8 @@ static void submenu_juegos(void)
         printf("  1. Tetris  (tetris-bsd)\n");
         printf("  2. Snake   (snake)\n");
         printf("  3. Robots  (robots)\n");
-        printf("  4. Pong    (pong)\n");
-        printf("  5. Ejecutar otro binario (ruta o comando)\n");
-        printf("  6. Volver al menú principal\n");
+        printf("  4. Ejecutar otro binario (ruta o comando)\n");
+        printf("  5. Volver al menú principal\n");
 
         if (aviso[0] != '\0') {
             printf("\n\033[1;31m%s\033[0m\n", aviso); /* negrita + rojo */
@@ -1526,14 +1525,14 @@ static void submenu_juegos(void)
         }
 
         {
-            int r = leer_entero("\nSeleccione una opción (1-6): ", &op);
+            int r = leer_entero("\nSeleccione una opción (1-5): ", &op);
             if (r == 0) {
                 printf("\n[INFO] Entrada cerrada; se regresa al menú principal.\n");
                 return;
             }
             if (r < 0) {
                 snprintf(aviso, sizeof(aviso),
-                         "[ERROR] Entrada no válida: ingrese SOLO números del 1 al 6.");
+                         "[ERROR] Entrada no válida: ingrese SOLO números del 1 al 5.");
                 continue;
             }
         }
@@ -1555,11 +1554,6 @@ static void submenu_juegos(void)
             break;
         }
         case 4: {
-            char *argv[] = { (char *)"pong", NULL };
-            ejecutar_juego("PONG", argv);
-            break;
-        }
-        case 5: {
             char linea[512];
             char *argv[16];
             int argc = 0;
@@ -1585,11 +1579,11 @@ static void submenu_juegos(void)
             pausa();
             break;
         }
-        case 6:
+        case 5:
             return;
         default:
             snprintf(aviso, sizeof(aviso),
-                     "[ERROR] Opción fuera de rango (1-6). Intente de nuevo.");
+                     "[ERROR] Opción fuera de rango (1-5). Intente de nuevo.");
             break;
         }
     }
