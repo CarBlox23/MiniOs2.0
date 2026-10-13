@@ -129,6 +129,45 @@ static void pausa(void)
 }
 
 /* ==========================================================================
+ *  INTERFAZ — limpieza de consola y encabezados (ANSI, sin system())
+ * ========================================================================== */
+
+/*
+ * Limpia la pantalla con la secuencia ANSI estándar de Linux:
+ *   \033[H  -> mueve el cursor al origen (fila 1, columna 1)
+ *   \033[J  -> borra desde el cursor hasta el final de la pantalla
+ * Equivale a system("clear") SIN invocar system() (prohibido por el proyecto).
+ */
+static void limpiar_pantalla(void)
+{
+    printf("\033[H\033[J");
+    fflush(stdout);
+}
+
+/*
+ * Limpia la consola y dibuja un encabezado destacado (negrita) con el módulo
+ * y la opción que se está ejecutando, por ejemplo:
+ *      ==================================================================
+ *         === GESTOR DE ARCHIVOS > CREAR ARCHIVO ===
+ *      ==================================================================
+ * Si `opcion` es NULL solo se muestra el módulo.
+ */
+static void encabezado(const char *modulo, const char *opcion)
+{
+    limpiar_pantalla();
+    printf("\033[1m"); /* negrita: título destacado */
+    printf("==================================================================\n");
+    if (opcion != NULL && opcion[0] != '\0') {
+        printf("   === %s > %s ===\n", modulo, opcion);
+    } else {
+        printf("   === %s ===\n", modulo);
+    }
+    printf("==================================================================\n");
+    printf("\033[0m");  /* restablece atributos al valor por defecto */
+    fflush(stdout);
+}
+
+/* ==========================================================================
  *  BITÁCORA DEL SISTEMA (auditoría con marca de tiempo)
  * ========================================================================== */
 
@@ -192,8 +231,6 @@ static void ver_bitacora(void)
     int fd;
     ssize_t n;
 
-    printf("\n=============== BITÁCORA DEL SISTEMA ===============\n");
-
     if (ruta_bitacora(ruta, sizeof(ruta)) != 0) {
         printf("[ERROR] Ruta de bitácora inválida.\n");
         return;
@@ -219,7 +256,7 @@ static void ver_bitacora(void)
         printf("[ERROR] Error de lectura de la bitácora: %s\n", strerror(errno));
     }
     close(fd);
-    printf("=====================================================\n");
+    printf("\nFin de la bitácora.\n");
 }
 
 /* ==========================================================================
@@ -1228,14 +1265,27 @@ static void fs_eliminar(void)
     }
 }
 
+/*
+ * Despacha una operación del Gestor de Archivos con la interfaz completa:
+ * limpia la consola, muestra el encabezado del módulo > opción, ejecuta la
+ * operación y espera con ENTER antes de redibujar el menú.
+ */
+static void ejecutar_op(const char *titulo, void (*operacion)(void))
+{
+    encabezado("GESTOR DE ARCHIVOS", titulo);
+    operacion();
+    pausa();
+}
+
 /* Submenú del Gestor de Archivos (bucle propio, opción 11 regresa). */
 static void submenu_archivos(void)
 {
     int op = 0;
+    char aviso[200] = ""; /* último error: se conserva al redibujar el menú */
 
     for (;;) {
-        printf("\n=============== GESTOR DE ARCHIVOS ===============\n");
-        printf("Disco virtual: %s\n", g_disco);
+        encabezado("GESTOR DE ARCHIVOS", NULL); /* limpia y titula el menú */
+        printf("Disco virtual: %s\n\n", g_disco);
         printf("  1.  Listar contenido del directorio\n");
         printf("  2.  Crear archivo de texto\n");
         printf("  3.  Crear directorio\n");
@@ -1247,34 +1297,41 @@ static void submenu_archivos(void)
         printf("  9.  Buscar archivos\n");
         printf("  10. Eliminar archivo o directorio\n");
         printf("  11. Volver al menú principal\n");
-        printf("===================================================\n");
+
+        if (aviso[0] != '\0') {
+            printf("\n\033[1;31m%s\033[0m\n", aviso); /* negrita + rojo */
+            aviso[0] = '\0'; /* se consume tras mostrarse */
+        }
 
         {
-            int r = leer_entero("Seleccione una opción (1-11): ", &op);
+            int r = leer_entero("\nSeleccione una opción (1-11): ", &op);
             if (r == 0) {
                 printf("\n[INFO] Entrada cerrada; se regresa al menú principal.\n");
                 return;
             }
             if (r < 0) {
-                printf("[ERROR] Entrada no válida: ingrese SOLO números del 1 al 11.\n");
+                snprintf(aviso, sizeof(aviso),
+                         "[ERROR] Entrada no válida: ingrese SOLO números del 1 al 11.");
                 continue;
             }
         }
 
         switch (op) {
-        case 1:  fs_listar();           break;
-        case 2:  fs_crear_archivo();    break;
-        case 3:  fs_crear_directorio(); break;
-        case 4:  fs_leer_archivo();     break;
-        case 5:  fs_editar_archivo();   break;
-        case 6:  fs_copiar();           break;
-        case 7:  fs_renombrar();        break;
-        case 8:  fs_permisos();         break;
-        case 9:  fs_buscar();           break;
-        case 10: fs_eliminar();         break;
-        case 11: return;
+        case 1:  ejecutar_op("LISTAR",              fs_listar);           break;
+        case 2:  ejecutar_op("CREAR ARCHIVO",       fs_crear_archivo);    break;
+        case 3:  ejecutar_op("CREAR DIRECTORIO",    fs_crear_directorio); break;
+        case 4:  ejecutar_op("LEER ARCHIVO",        fs_leer_archivo);     break;
+        case 5:  ejecutar_op("EDITAR ARCHIVO",      fs_editar_archivo);   break;
+        case 6:  ejecutar_op("COPIAR ARCHIVO",      fs_copiar);           break;
+        case 7:  ejecutar_op("RENOMBRAR / MOVER",   fs_renombrar);        break;
+        case 8:  ejecutar_op("CAMBIAR PERMISOS",    fs_permisos);         break;
+        case 9:  ejecutar_op("BUSCAR ARCHIVOS",     fs_buscar);           break;
+        case 10: ejecutar_op("ELIMINAR",            fs_eliminar);         break;
+        case 11:
+            return;
         default:
-            printf("[ERROR] Opción fuera de rango (1-11). Intente de nuevo.\n");
+            snprintf(aviso, sizeof(aviso),
+                     "[ERROR] Opción fuera de rango (1-11). Intente de nuevo.");
             break;
         }
     }
@@ -1436,29 +1493,47 @@ static int lanzar_juego(char *argv[])
     return 0;
 }
 
+/*
+ * Ejecuta un juego con la interfaz completa: limpia la consola, muestra el
+ * encabezado CENTRO DE JUEGOS > JUEGO, lanza el proceso, presenta el informe
+ * y espera con ENTER antes de redibujar el menú.
+ */
+static void ejecutar_juego(const char *titulo, char *argv[])
+{
+    encabezado("CENTRO DE JUEGOS", titulo);
+    lanzar_juego(argv);
+    pausa();
+}
+
 /* Submenú del Centro de Juegos (bucle propio). */
 static void submenu_juegos(void)
 {
     int op = 0;
+    char aviso[200] = ""; /* último error: se conserva al redibujar el menú */
 
     for (;;) {
-        printf("\n=============== CENTRO DE JUEGOS ===============\n");
+        encabezado("CENTRO DE JUEGOS", NULL); /* limpia y titula el menú */
         printf("  1. Tetris  (tetris-bsd)\n");
         printf("  2. Snake   (snake)\n");
         printf("  3. Robots  (robots)\n");
         printf("  4. Pong    (pong)\n");
         printf("  5. Ejecutar otro binario (ruta o comando)\n");
         printf("  6. Volver al menú principal\n");
-        printf("================================================\n");
+
+        if (aviso[0] != '\0') {
+            printf("\n\033[1;31m%s\033[0m\n", aviso); /* negrita + rojo */
+            aviso[0] = '\0'; /* se consume tras mostrarse */
+        }
 
         {
-            int r = leer_entero("Seleccione una opción (1-6): ", &op);
+            int r = leer_entero("\nSeleccione una opción (1-6): ", &op);
             if (r == 0) {
                 printf("\n[INFO] Entrada cerrada; se regresa al menú principal.\n");
                 return;
             }
             if (r < 0) {
-                printf("[ERROR] Entrada no válida: ingrese SOLO números del 1 al 6.\n");
+                snprintf(aviso, sizeof(aviso),
+                         "[ERROR] Entrada no válida: ingrese SOLO números del 1 al 6.");
                 continue;
             }
         }
@@ -1466,22 +1541,22 @@ static void submenu_juegos(void)
         switch (op) {
         case 1: {
             char *argv[] = { (char *)"tetris-bsd", NULL };
-            lanzar_juego(argv);
+            ejecutar_juego("TETRIS", argv);
             break;
         }
         case 2: {
             char *argv[] = { (char *)"snake", NULL };
-            lanzar_juego(argv);
+            ejecutar_juego("SNAKE", argv);
             break;
         }
         case 3: {
             char *argv[] = { (char *)"robots", NULL };
-            lanzar_juego(argv);
+            ejecutar_juego("ROBOTS", argv);
             break;
         }
         case 4: {
             char *argv[] = { (char *)"pong", NULL };
-            lanzar_juego(argv);
+            ejecutar_juego("PONG", argv);
             break;
         }
         case 5: {
@@ -1490,10 +1565,11 @@ static void submenu_juegos(void)
             int argc = 0;
             char *tok;
 
+            encabezado("CENTRO DE JUEGOS", "OTRO EJECUTABLE");
             printf("Comando (ej.: /usr/games/tetris-bsd o snake): ");
             fflush(stdout);
             if (!leer_texto(linea, sizeof(linea)) || linea[0] == '\0') {
-                printf("[ERROR] Comando vacío.\n");
+                snprintf(aviso, sizeof(aviso), "[ERROR] Comando vacío.");
                 break;
             }
             for (tok = strtok(linea, " \t"); tok != NULL && argc < 15;
@@ -1502,16 +1578,18 @@ static void submenu_juegos(void)
             }
             argv[argc] = NULL;
             if (argc == 0) {
-                printf("[ERROR] Comando vacío.\n");
+                snprintf(aviso, sizeof(aviso), "[ERROR] Comando vacío.");
                 break;
             }
             lanzar_juego(argv);
+            pausa();
             break;
         }
         case 6:
             return;
         default:
-            printf("[ERROR] Opción fuera de rango (1-6). Intente de nuevo.\n");
+            snprintf(aviso, sizeof(aviso),
+                     "[ERROR] Opción fuera de rango (1-6). Intente de nuevo.");
             break;
         }
     }
@@ -1521,64 +1599,77 @@ static void submenu_juegos(void)
  *  MENÚ PRINCIPAL
  * ========================================================================== */
 
-static void menu_principal(void)
+/*
+ * Menú principal: limpia la consola (ANSI) y dibuja el encabezado del
+ * sistema más las opciones. Si hay un aviso pendiente, se muestra debajo
+ * para que el error no desaparezca con la limpieza.
+ */
+static void menu_principal(const char *aviso)
 {
-    printf("\n==================================================\n");
-    printf("   MINI SISTEMA OPERATIVO  ·  v2.0  ·  CONSOLA\n");
-    printf("==================================================\n");
+    encabezado("MINI SISTEMA OPERATIVO v2.0", NULL);
+    printf("  Disco virtual: %s\n\n", g_disco);
     printf("  1. Gestor de Archivos\n");
     printf("  2. Centro de Juegos\n");
     printf("  3. Ver Bitácora del Sistema\n");
     printf("  0. Apagar Sistema\n");
-    printf("==================================================\n");
+
+    if (aviso != NULL && aviso[0] != '\0') {
+        printf("\n\033[1;31m%s\033[0m\n", aviso); /* negrita + rojo */
+    }
 }
 
 int main(void)
 {
     int op = 0;
+    char aviso[200] = ""; /* último error: se conserva al redibujar el menú */
 
     /* El disco virtual debe existir y estar normalizado antes de operar */
     if (inicializar_disco() != 0) {
         return EXIT_FAILURE;
     }
 
-    printf("=== MiniSO v2.0 en línea ===\n");
-    printf("Disco virtual (sandbox): %s\n", g_disco);
     registrar("SISTEMA iniciado (disco %s)", g_disco);
 
     for (;;) {
         int r;
 
-        menu_principal();
-        r = leer_entero("Seleccione una opción (0-3): ", &op);
+        menu_principal(aviso); /* limpia la pantalla y redibuja el menú */
+        aviso[0] = '\0';
+
+        r = leer_entero("\nSeleccione una opción (0-3): ", &op);
         if (r == 0) {
             /* EOF (Ctrl+D): salida limpia */
+            limpiar_pantalla();
             printf("\n[SISTEMA] Entrada cerrada. Apagando el MiniSO...\n");
             break;
         }
         if (r < 0) {
-            printf("[ERROR] Entrada no válida: letras o números fuera de rango.\n");
-            printf("        El buffer de entrada fue limpiado; intente de nuevo.\n");
+            snprintf(aviso, sizeof(aviso),
+                     "[ERROR] Entrada no válida: letras o números fuera de rango.\n"
+                     "        El buffer de entrada fue limpiado; intente de nuevo.");
             continue;
         }
 
         switch (op) {
         case 1:
-            submenu_archivos();
+            submenu_archivos(); /* submenú con su propio encabezado */
             break;
         case 2:
-            submenu_juegos();
+            submenu_juegos();   /* submenú con su propio encabezado */
             break;
         case 3:
+            encabezado("SISTEMA", "BITÁCORA DEL SISTEMA");
             ver_bitacora();
             pausa();
             break;
         case 0:
             registrar("SISTEMA apagado por el usuario");
+            limpiar_pantalla();
             printf("\n[SISTEMA] Apagando el Mini Sistema Operativo. ¡Hasta luego!\n");
             return EXIT_SUCCESS;
         default:
-            printf("[ERROR] Opción inválida '%d'. Use 0, 1, 2 o 3.\n", op);
+            snprintf(aviso, sizeof(aviso),
+                     "[ERROR] Opción inválida '%d'. Use 0, 1, 2 o 3.", op);
             break;
         }
     }
